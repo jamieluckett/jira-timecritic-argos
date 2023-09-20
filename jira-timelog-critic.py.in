@@ -1,0 +1,170 @@
+from configparser import ConfigParser
+from enum import Enum
+from os import environ, path
+from sys import exit
+from traceback import format_exc
+
+DEFAULT_CONFIG_FILE_NAME = 'jira.default.ini'
+CUSTOM_CONFIG_FILE_NAME = 'jira.custom.ini'
+
+SKIP_EXCEPTION_FORMATTING_ENVVAR = 'SKIP_EXCEPTION_FORMAT'
+
+ARGOS_SEPERATOR = '---'
+
+
+class GnomeIcons(Enum):
+    AWFUL = 'user-busy'
+    BAD = 'user-idle'
+    GOOD = 'user-available'
+
+    ERROR = 'dialog-warning'
+    JIRA_LINK = 'appointment-new'
+
+    def __str__(self):
+        # Without a custom str func, str(GnomeIcons.AWFUL) = "GnomeIcons.AWFUL", not "user-busy"
+        return self.value
+
+
+WORST_ICON = GnomeIcons.AWFUL
+ICON_TARGETS = {
+    0.66: GnomeIcons.BAD,
+    0.90: GnomeIcons.GOOD
+}
+
+
+def argos_line_builder(body="", **kwargs):
+    """
+    Generic function to print nicely in the correct argos format the passed body and arguments.
+    :param body: The text to print on the line
+    :param kwargs: mappings to be appended to the body as Argos properties
+    """
+    def arg_format(arg):
+        """
+        Reads in passed argument and generates line to put after pipe in argos.
+        Wraps values with spaces in quotation marks.
+        """
+        name, value = arg
+        if type(value) == str and ' ' in value:
+            # Arguments with spaces in must be wrapped in quotation marks
+            return f"{name}='{value}'"
+        return f"{name}={value}"
+
+    if kwargs:
+        arguments = " ".join([arg_format(arg) for arg in kwargs.items()])
+        return f"{body} | {arguments}\n"
+    else:
+        return f"{body}\n"
+
+
+def argos_print(body="", **kwargs):
+    print(argos_line_builder(body, **kwargs), end='')
+
+
+def print_last_exception():
+    """
+    Prints the last thrown Exception out.
+    Also debug_prints it in case the issue lives in argos_print.
+    """
+    last_exception = format_exc()
+    print(ARGOS_SEPERATOR)
+    argos_print("<b>Exception Details:</b>")
+    argos_print(last_exception.replace("\n", "\\n"), font="monospace", useMarkup="false", unescape="true")
+
+
+def load_config():
+    # Read default config file (should error out if not found)
+    parser = ConfigParser()
+
+    script_dir = path.dirname(path.realpath(__file__))
+
+    default_config_path = f'{script_dir}/{DEFAULT_CONFIG_FILE_NAME}'
+    with open(default_config_path, 'r') as f:
+        parser.read_file(f)
+    # Try and read custom config file (if it exists)
+    custom_config_path = f'{script_dir}/{CUSTOM_CONFIG_FILE_NAME}'
+    try:
+        with open(custom_config_path, 'r') as f:
+            parser.read_file(f)
+    except FileNotFoundError:
+        pass
+
+    return parser
+
+
+def get_week_icon(hours_logged, expected_hours):
+    pct_logged = hours_logged / expected_hours
+    icon = WORST_ICON
+    for target, t_icon in ICON_TARGETS.items():
+        if pct_logged >= target:
+            icon = t_icon
+    return icon
+
+
+def generate_week_output(config):
+    jira_timelog_client = JiraTimeLogClient(
+        jira_server=config['Jira']['Server'],
+        jira_username=config['Jira']['Username'],
+        jira_api_token=config['Jira']['APIToken'],
+    )
+
+    week_outputs = []
+
+    expected_hours_per_day = config['Time'].getint('ExpectedHoursADay')
+
+    for week_no in range(config['Time'].getint('GetNLastWeeks')):
+        week_output = ""
+        start_date, end_date = jira_timelog_client.get_weeks_ago(week_no)
+        hours_logged = jira_timelog_client.get_secs_logged_between(start_date, end_date) / 3600
+
+        if week_no == 0:
+            week_label = 'this week'
+            time_string = f'{hours_logged:.2f}'
+        else:
+            week_label = f'for the week starting {start_date.strftime(jira_timelog_client.JQL_DATE_FORMAT)}'
+            time_string = f'{hours_logged:05.2f}'
+
+        icon = get_week_icon(hours_logged, expected_hours_per_day)
+
+        week_str = f'{time_string}h logged {week_label}'
+        week_output += argos_line_builder(week_str, icon=icon)
+        week_outputs.append(week_output)
+
+    return week_outputs
+
+
+def handle_exception():
+    if environ.get(SKIP_EXCEPTION_FORMATTING_ENVVAR, '').lower() in ('y', 'yes', '1', 'true'):
+        raise
+    argos_print("Jira Timelog Critic - Error!", icon=GnomeIcons.ERROR)
+    print_last_exception()
+    return 1
+
+
+def main():
+    try:
+        config = load_config()
+        week_outputs = generate_week_output(config)
+        for n, week_output in enumerate(week_outputs):
+            print(week_output, end='')
+            if n == 0:
+                print(ARGOS_SEPERATOR)
+
+        timelog_url = config.get("Jira", "TimelogURL", fallback=None)
+        if timelog_url:
+            argos_print(
+                "Open Jira Time Logging",
+                href=timelog_url,
+                iconName=GnomeIcons.JIRA_LINK.value
+            )
+
+    except Exception:
+        return handle_exception()
+
+
+if __name__ == '__main__':
+    try:
+        from jira_timelog_lib import JiraTimeLogClient
+    except Exception:
+        exit(handle_exception())
+
+    exit(main())
