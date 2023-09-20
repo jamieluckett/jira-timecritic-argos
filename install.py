@@ -101,6 +101,21 @@ def create_virtualenv(python_interpreter, virtualenv_path):
         raise
 
 
+def install_timelog_lib(virtualenv_path):
+    action_print("Installing/Updating jenkins_timelog_lib in virtual environment")
+    out = None
+    try:
+        out = subprocess.run(
+            [f'{virtualenv_path}/bin/python', '-m', 'pip', 'install', '-r', 'requirements.txt'],
+            shell=False,
+            check=True
+        )
+    except subprocess.CalledProcessError:
+        error_print("Failed to install Python libraries in Virtual Environment, error message:")
+        if out:
+            skipped_print(out.stdout.decode())
+
+
 def build_plugin_name(execution_frequency, rerun_on_dropdown):
     return PLUGIN_NAME_TEMPLATE.format(
         position='',
@@ -163,7 +178,9 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '-p', '--python-interpreter', type=python_interpreter,
-        help="ddd"
+        help="which python interpreter should be used to create the virtual env for the plugin "
+             "(note that the 'venv' module must be available)\n"
+             "defaults to the systems 'python3' binary (found via shutil.which)"
     )
     parser.add_argument(
         '-a', '--assume-argos', action='store_true',
@@ -171,7 +188,7 @@ def get_args():
     )
     parser.add_argument(
         '-t', '--execution-frequency', type=argos_interval, default="5m",
-        help=f"How often the plugin will be executed, must be in the pattern {ARGOS_INTERVAL_PATTERN}"
+        help=f"how often the plugin will be executed, must be in the pattern {ARGOS_INTERVAL_PATTERN}"
     )
     parser.add_argument(
         '-r', '--rerun-on-dropdown', action='store_true',
@@ -214,6 +231,7 @@ if __name__ == '__main__':
         skipped_print("Skipping checking for argos (-a/--assume-argos passed)")
 
     create_virtualenv(args.python_interpreter, full_virtualenv_path)
+    install_timelog_lib(full_virtualenv_path)
     install_default_config_file(full_config_source_path, full_config_dest_path)
     install_plugin(full_plugin_source_path, full_plugin_dest_path, full_virtualenv_path)
 

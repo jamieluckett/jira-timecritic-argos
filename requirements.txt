@@ -1,1 +1,1 @@
-jira_timelog_lib
+git+ssh://git@github.com/jamieluckett/jira-timelog-lib.git@22ed0de4b36acbb644046a80a3f047980ec141c6

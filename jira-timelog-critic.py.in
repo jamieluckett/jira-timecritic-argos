@@ -1,3 +1,10 @@
+"""
+Jira Timelog Critic Argos Plugin
+https://github.com/jamieluckett/jira-timecritic-argos
+
+Copyright 2023, Jamie Luckett (github.com/jamieluckett)
+"""
+
 from configparser import ConfigParser
 from enum import Enum
 from os import environ, path
@@ -123,10 +130,10 @@ def generate_week_output(config):
             week_label = f'for the week starting {start_date.strftime(jira_timelog_client.JQL_DATE_FORMAT)}'
             time_string = f'{hours_logged:05.2f}'
 
-        icon = get_week_icon(hours_logged, expected_hours_per_day)
+        icon = get_week_icon(hours_logged, expected_hours_per_day * 5)  # TODO - Allow configuration of holidays?
 
         week_str = f'{time_string}h logged {week_label}'
-        week_output += argos_line_builder(week_str, icon=icon)
+        week_output += argos_line_builder(week_str, iconName=icon)
         week_outputs.append(week_output)
 
     return week_outputs
@@ -135,7 +142,7 @@ def generate_week_output(config):
 def handle_exception():
     if environ.get(SKIP_EXCEPTION_FORMATTING_ENVVAR, '').lower() in ('y', 'yes', '1', 'true'):
         raise
-    argos_print("Jira Timelog Critic - Error!", icon=GnomeIcons.ERROR)
+    argos_print("Jira Timelog Critic - Error!", iconName=GnomeIcons.ERROR)
     print_last_exception()
     return 1
 
